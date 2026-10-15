@@ -1,62 +1,41 @@
+import json
+
 from comfy_api.latest import ComfyExtension, io
-
-from .layout import prepare, select_reference
-
-Plan = io.Custom('BC_FLUX3_PLAN')
+from comfy_extras.nodes_flux import Flux3LayoutPrompt
 
 
-class BCFlux3LayoutPrompt(io.ComfyNode):
+class Flux3BoxPrompt(io.ComfyNode):
     @classmethod
     def define_schema(cls):
         return io.Schema(
-            node_id='BCFlux3LayoutPrompt',
-            display_name='BC FLUX 3 · Box Layout Prompt',
-            category='BC ink/FLUX 3',
-            description='Turn drawn boxes and named references into a FLUX 3 caption and box table. No inference.',
+            node_id="Flux3BoxPrompt",
+            display_name="FLUX 3 Layout Prompt",
+            category="FLUX 3",
+            description="Combine a scene prompt and bounding boxes using ComfyUI's native FLUX 3 layout formatter.",
             inputs=[
-                io.String.Input('caption', multiline=True, default='A sparse black ink illustration on white.'),
-                io.Combo.Input('mode', options=['edit_scene', 'layout'], default='edit_scene'),
-                io.String.Input('reference_names', default='scene,yeti,goat,bear',
-                                tooltip='One name per connected image, in socket order. The manifest shows exact zero-based indices.'),
-                io.String.Input('source_reference', default='scene'),
-                io.String.Input('boxes_json', multiline=True, default='[]',
-                                tooltip='Fallback canvas-1000 box list. Ignored when elements is connected.'),
-                io.Array.Input('elements', optional=True,
-                               tooltip='Connect Create Bounding Boxes → elements. Description syntax: skier @yeti | skiing downhill.'),
-                io.Autogrow.Input('images', template=io.Autogrow.TemplatePrefix(
-                    io.Image.Input('image'), prefix='image_', min=0, max=10),
-                    tooltip='Separate images in order; do not use a contact sheet. FLUX 3 supports ten references.'),
+                io.String.Input("prompt", multiline=True, default="",
+                                tooltip="Describe the scene. Cite boxes as <obj_1>, <obj_2>, etc."),
+                io.Array.Input("elements", optional=True,
+                               tooltip="Connect the elements output from Create Bounding Boxes."),
+                io.String.Input("boxes_json", multiline=True, default="[]",
+                                tooltip="Optional box list when no canvas is connected. Each row needs bbox and desc. Coordinates: [top, left, bottom, right], 0–1000."),
             ],
-            outputs=[io.String.Output(display_name='prompt'), Plan.Output(display_name='plan'),
-                     io.String.Output(display_name='boxes_json'), io.String.Output(display_name='reference_manifest')],
+            outputs=[io.String.Output(display_name="prompt")],
         )
 
     @classmethod
-    def execute(cls, caption, mode, reference_names, source_reference, boxes_json, elements=None, images=None):
-        return io.NodeOutput(*prepare(caption, mode, source_reference, reference_names, boxes_json, elements, images))
+    def execute(cls, prompt, elements=None, boxes_json="[]"):
+        if elements is None:
+            elements = json.loads(boxes_json or "[]")
+        if not isinstance(elements, list):
+            raise ValueError("Bounding boxes must be a JSON list or the elements output from Create Bounding Boxes.")
+        return Flux3LayoutPrompt.execute(prompt, elements)
 
 
-class BCFlux3ReferenceImage(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        return io.Schema(
-            node_id='BCFlux3ReferenceImage',
-            display_name='BC FLUX 3 · Named Reference Image',
-            category='BC ink/FLUX 3',
-            description='Select one image from a layout plan by name, with its exact FLUX 3 reference index.',
-            inputs=[Plan.Input('plan'), io.String.Input('reference_name', default='scene')],
-            outputs=[io.Image.Output(display_name='image'), io.Int.Output(display_name='reference_index')],
-        )
-
-    @classmethod
-    def execute(cls, plan, reference_name):
-        return io.NodeOutput(*select_reference(plan, reference_name))
-
-
-class BCFlux3LayoutExtension(ComfyExtension):
+class Flux3LayoutExtension(ComfyExtension):
     async def get_node_list(self):
-        return [BCFlux3LayoutPrompt, BCFlux3ReferenceImage]
+        return [Flux3BoxPrompt]
 
 
 async def comfy_entrypoint():
-    return BCFlux3LayoutExtension()
+    return Flux3LayoutExtension()
